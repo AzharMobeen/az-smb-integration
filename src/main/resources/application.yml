@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: az-smb-integration
+
+smb:
+  host: 192.168.0.27       # IP or hostname of SMB server
+  share: SharedFolder       # Name of the SMB shared folder
+  domain: "test"                # Optional, keep blank for workgroup
+  username: myuser
+  password: mypassword
+  folder-path: test-folder  # Relative folder path inside the share
+  file-name: test.txt
+
