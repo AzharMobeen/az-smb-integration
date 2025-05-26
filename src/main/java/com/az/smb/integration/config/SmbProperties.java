@@ -11,10 +11,9 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "smb")
 public class SmbProperties {
     private String host;
+    private int port;
     private String share;
     private String domain;
     private String username;
     private String password;
-    private String folderPath;
-    private String fileName;
 }

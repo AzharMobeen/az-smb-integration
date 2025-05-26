@@ -9,7 +9,9 @@ import com.hierynomus.smbj.SMBClient;
 import com.hierynomus.smbj.auth.AuthenticationContext;
 import com.hierynomus.smbj.connection.Connection;
 import com.hierynomus.smbj.session.Session;
-import com.hierynomus.smbj.share.*;
+import com.hierynomus.smbj.share.DiskShare;
+import com.hierynomus.smbj.share.File;
+import com.hierynomus.smbj.share.Share;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Paths;
 import java.util.EnumSet;
 
 @Slf4j
@@ -32,23 +35,15 @@ public class SmbFileService {
      * @param content The content to write to the file
      * @throws SmbOperationException If any SMB operation fails
      */
-    public void writeFileToSmb(String content) {
+    public void writeFileToSmb(String content, String fileName, String folderPath) {
         log.info("Writing file to SMB share folder: {}", smbProperties.getShare());
         try (SMBClient client = new SMBClient();
-             Connection connection = client.connect(smbProperties.getHost())) {
-
+             Connection connection = client.connect(smbProperties.getHost(), smbProperties.getPort())) {
             Session session = authenticateSession(connection);
+            writeContentToFile(content, fileName, folderPath, session);
+            writeContentToFile("content".concat("test"), "fileName.xml", folderPath, session);
+            log.info("File successfully written to SMB share: {}", folderPath);
 
-            try (DiskShare diskShare = connectToDiskShare(session)) {
-                String folderPath = smbProperties.getFolderPath();
-                String fileName = smbProperties.getFileName();
-                String fullPath = combinePath(folderPath, fileName);
-
-                ensureDirectoryExists(diskShare, folderPath);
-                writeContentToFile(diskShare, fullPath, content);
-
-                log.info("File successfully written to SMB share: {}", fullPath);
-            }
         } catch (Exception e) {
             log.error("Failed to write file to SMB share", e);
             throw new SmbOperationException("Error writing to SMB share", e);
@@ -76,28 +71,47 @@ public class SmbFileService {
     }
 
     private String combinePath(String folderPath, String fileName) {
-        return folderPath + "/" + fileName;
+        return Paths.get(folderPath, fileName).toString();
     }
 
     private void ensureDirectoryExists(DiskShare diskShare, String folderPath) {
-        if (!diskShare.folderExists(folderPath)) {
-            diskShare.mkdir(folderPath);
+        // Handle paths with both forward and backslashes
+        String[] pathParts = folderPath.split("[/\\\\]");
+        StringBuilder currentPath = new StringBuilder();
+
+        for (String part : pathParts) {
+            if (part.isEmpty()) continue;
+
+            if (!currentPath.isEmpty()) {
+                currentPath.append("/");
+            }
+            currentPath.append(part);
+
+            String pathToCheck = currentPath.toString();
+            if (!diskShare.folderExists(pathToCheck)) {
+                log.debug("Creating directory: {}", pathToCheck);
+                diskShare.mkdir(pathToCheck);
+            }
         }
     }
 
-    private void writeContentToFile(DiskShare diskShare, String fullPath, String content) throws IOException {
-        log.info("Writing content to file: {}", fullPath);
-        try (File file = diskShare.openFile(
-                fullPath,
-                EnumSet.of(AccessMask.GENERIC_WRITE),
-                null,
-                SMB2ShareAccess.ALL,
-                SMB2CreateDisposition.FILE_OVERWRITE_IF,
-                EnumSet.of(SMB2CreateOptions.FILE_RANDOM_ACCESS));
-             OutputStream os = file.getOutputStream()) {
+    private void writeContentToFile(String content, String fileName, String folderPath, Session session) throws IOException {
+        log.info("Writing content to file: {}", folderPath);
+        String fullPath = combinePath(folderPath, fileName);
+        try (DiskShare diskShare = connectToDiskShare(session)) {
+            ensureDirectoryExists(diskShare, folderPath);
+            try (File file = diskShare.openFile(
+                    fullPath,
+                    EnumSet.of(AccessMask.GENERIC_WRITE),
+                    null,
+                    SMB2ShareAccess.ALL,
+                    SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                    EnumSet.of(SMB2CreateOptions.FILE_RANDOM_ACCESS));
+                 OutputStream os = file.getOutputStream()) {
 
-            os.write(content.getBytes(StandardCharsets.UTF_8));
-            os.flush();
+                os.write(content.getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
         }
     }
 
